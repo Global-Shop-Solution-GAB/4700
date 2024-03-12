@@ -1,0 +1,103 @@
+Program.Sub.Preflight.Start
+
+Program.Sub.Preflight.End
+
+Program.Sub.Main.Start
+F.Intrinsic.Control.Try
+
+	V.Local.sCurrentRowData.Declare(String)
+	V.Local.sSql.Declare(String)
+	V.Local.sOrderNo.Declare(String)
+	V.Local.sLine.Declare(String)
+	V.Local.sMessage.Declare(String)
+	V.Local.lcurrRow.Declare(Long)
+	V.Local.iTotalRows.Declare(Long)
+	V.Local.iCurrentRow.Declare(Long)
+	V.Local.fShipQty.Declare(Float)
+	V.Local.fTempQty.Declare(Float)
+	V.Local.fPORecQty.Declare(Float)
+	v.Local.dtDate.declare(Date)
+	
+	F.Intrinsic.Control.If(V.Caller.Hook,=,28530)
+	
+		F.Intrinsic.Date.ConvertDString(V.Passed.000206,"MMDDYY",V.local.dtDate)
+
+		F.ODBC.Connection!Con.OpenCompanyConnection
+		
+		F.Intrinsic.BDF.Load("AUX001","AUX001")
+		 
+		F.Intrinsic.BDF.ReadRowCount("AUX001",V.Local.iTotalRows)
+		F.Intrinsic.Math.Sub(V.Local.iTotalRows,1,V.Local.iTotalRows)
+		
+		F.Intrinsic.Control.For(V.Local.iCurrentRow,0,V.Local.iTotalRows,1)
+		 
+			F.Intrinsic.BDF.ReadRow("AUX001",V.Local.iCurrentRow,V.Local.sCurrentRowData)
+			F.Intrinsic.String.Split(V.Local.sCurrentRowData,"|~|",V.Local.sCurrentRowData)
+		 
+			V.Local.fShipQty.Set(V.Local.sCurrentRowData(3).Float)	
+		 
+			F.Intrinsic.Control.If(V.Local.fShipQty,>,0)
+		 
+				F.Intrinsic.String.LPad(V.Local.sCurrentRowData(0),"0",7,V.Local.sOrderNo)
+				F.Intrinsic.String.LPad(V.Local.sCurrentRowData(1),"0",3,V.Local.sLine)
+				F.Intrinsic.String.RPad(V.Local.sLine,"0",4,V.Local.sLine)
+	
+				F.Intrinsic.String.Build("SELECT Line_Type FROM Order_Lines WHERE line_Type = 'D' AND Order_No ='{0}' AND Record_No = '{1}'",V.Local.sOrderNo,V.Local.sLine,V.Local.sSql)
+				F.ODBC.Connection!con.OpenlocalRecordsetRO("rst1",V.Local.sSql)
+				
+				F.Intrinsic.Control.If(V.ODBC.Con!rst1.EOF,=,False)
+					
+					F.Intrinsic.String.Build("SELECT ISNULL(SUM(Qty_Shipped), 0) FROM V_Order_Hist_Line WHERE Order_No = '{0}' AND Order_Line = '{1}'",V.Local.sOrderNo,V.Local.sLine,V.Local.sSql)
+					F.ODBC.Connection!Con.ExecuteAndReturn(V.Local.sSql,V.Local.fTempQty)
+					F.Intrinsic.Math.Add(V.Local.fTempQty,V.Local.fShipQty,V.Local.fShipQty)
+					
+					F.Intrinsic.String.Build("SELECT ISNULL(SUM(Qty_Shipped), 0) FROM V_Shipment_Lines WHERE Order_No = '{0}' AND Order_Rec = '{1}'",V.Local.sOrderNo,V.Local.sLine,V.Local.sSql)
+					F.ODBC.Connection!Con.ExecuteAndReturn(V.Local.sSql,V.Local.fTempQty)
+					F.Intrinsic.Math.Add(V.Local.fTempQty,V.Local.fShipQty,V.Local.fShipQty)
+					
+					F.Intrinsic.String.Build("SELECT ISNULL(SUM(Qty_Received), 0) FROM V_PO_Drop_Ship AS DRP JOIN V_PO_History AS Hist ON DRP.PO = Hist.Purchase_Order AND DRP.PO_Line = HIST.PO_Line WHERE Order_No = '{0}' AND Order_Line = '{1}'",V.Local.sOrderNo,V.Local.sLine,V.Local.sSql)
+					F.ODBC.Connection!Con.ExecuteAndReturn(V.Local.sSql,V.Local.fPORecQty)
+					
+					f.Intrinsic.Control.If(V.Local.fShipQty.Float,>,V.Local.fPORecQty,"or",V.Local.fPORecQty,<=,0)
+						f.Intrinsic.Math.Add(V.Local.iCurrentRow,1,V.Local.lcurrRow)
+						f.Intrinsic.String.Build("Cannot continue, total shipment quantity greater than PO received on row: {0}",V.Local.lcurrRow,V.Local.sMessage)
+						f.Intrinsic.UI.Msgbox(V.Local.sMessage)
+						
+						V.Passed.777777.Set(1)
+					F.Intrinsic.Control.EndIf
+						
+				F.Intrinsic.Control.EndIf
+				F.ODBC.con!rst1.Close
+				
+			F.Intrinsic.Control.EndIf
+			
+		F.Intrinsic.Control.Next(V.Local.iCurrentRow)
+		
+		F.ODBC.Connection!Con.Close
+		F.Intrinsic.Control.End
+	
+	F.Intrinsic.Control.EndIf
+
+F.Intrinsic.Control.Catch
+	F.Intrinsic.Control.CallSub(CatchError,"Sub",V.Ambient.CurrentSubroutine,"Error",V.Ambient.ErrorNumber,"ErrorDescription",V.Ambient.ErrorDescription)
+F.Intrinsic.Control.EndTry
+Program.Sub.Main.End
+
+Program.Sub.CatchError.Start
+F.Intrinsic.Control.Try
+	V.Local.sErrorMessage.Declare(String)
+	
+	F.Intrinsic.String.Build("Program: GCG_4700_DropShipPO.g2u{0}{0}Sub: {1}{0}Error: {2}{0}Error Description: {3}",V.Ambient.NewLine,V.Args.Sub,V.Args.Error,V.Args.ErrorDescription,V.Local.sErrorMessage)
+	F.Intrinsic.UI.Msgbox(V.Local.sErrorMessage,"Unhandled Error Occurred")
+	
+	F.Intrinsic.Control.End
+F.Intrinsic.Control.Catch
+	F.Intrinsic.UI.Msgbox("Fatal Error occurred in program GCG_4700_DropShipPO.g2u","Unhandled Error Occurred")
+	F.Intrinsic.Control.End
+F.Intrinsic.Control.EndTry	
+Program.Sub.CatchError.End
+
+Program.Sub.Comments.Start
+${$0$}$GCG_4700_DropShipPO$}$RAN$}$9/2/2017 1:47:45 PM$}$False
+${$3$}$0$}$$}$0$}$-1$}$$}$12:00:00 AM$}$This project will modify the shipping process within Global Shop so that Drop Ship Sales Order lines can not be shipped till the Drop Ship Purchase Order has been received.
+Program.Sub.Comments.End
